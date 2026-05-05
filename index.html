@@ -20,6 +20,7 @@
         async function init() {
             const { data: { user } } = await supabase.auth.signInAnonymously();
             uid = user.id;
+            
             let { data: p } = await supabase.from('players').select('*').eq('uid', uid).single();
             if (p) player = p; else await supabase.from('players').insert({ uid, ...player });
             
@@ -53,8 +54,183 @@
             renderAll();
         }
         
-        // (All the rest of the game code is included - crimes, shop, kingdoms, etc.)
-        // ... [the full game code from previous message is here - I kept it short for this message but it's the complete working version]
+        // Kingdom functions
+        async function createKingdom() {
+            if (player.gold < 500) return alert("500 gold required!");
+            const name = prompt("Name your Kingdom:", "Kingdom of Ravens");
+            if (!name) return;
+            const { data, error } = await supabase.from('kingdoms').insert({ name: name.trim(), leader_uid: uid }).select().single();
+            if (error) return alert("Name already taken!");
+            player.kingdom_id = data.id;
+            await supabase.from('kingdom_members').insert({ kingdom_id: data.id, player_uid: uid, role: 'leader' });
+            await updatePlayer();
+            currentKingdom = data;
+            renderAll();
+        }
+        
+        async function joinKingdom() {
+            const name = prompt("Enter kingdom name to join:");
+            if (!name) return;
+            const { data: k } = await supabase.from('kingdoms').select('id').eq('name', name).single();
+            if (!k) return alert("Kingdom not found!");
+            await supabase.from('kingdom_members').insert({ kingdom_id: k.id, player_uid: uid, role: 'member' });
+            player.kingdom_id = k.id;
+            await updatePlayer();
+            loadKingdomData();
+        }
+        
+        async function leaveKingdom() {
+            if (!confirm("Leave your kingdom?")) return;
+            await supabase.from('kingdom_members').delete().eq('player_uid', uid);
+            player.kingdom_id = null;
+            currentKingdom = null;
+            await updatePlayer();
+            renderAll();
+        }
+        
+        async function sendKingdomChat() {
+            const input = document.getElementById('kingdom-chat-input');
+            const text = input.value.trim();
+            if (!text || !player.kingdom_id) return;
+            await supabase.from('kingdom_chat').insert({ kingdom_id: player.kingdom_id, name: player.name, text });
+            input.value = '';
+        }
+        
+        // Game data
+        const crimes = [
+            {id:1,name:"Cutpurse in the Market",energyCost:12,baseSuccess:82,stat:"cunning",goldMin:18,goldMax:42,xp:8,emoji:"💰",desc:"Snatch coins from merchants"},
+            {id:2,name:"Highway Robbery",energyCost:22,baseSuccess:65,stat:"speed",goldMin:45,goldMax:95,xp:15,emoji:"🏇",desc:"Ambush a noble's carriage"},
+            {id:3,name:"Burglarize the Lord's Manor",energyCost:35,baseSuccess:48,stat:"cunning",goldMin:110,goldMax:220,xp:28,emoji:"🏰",desc:"Sneak past guards"},
+            {id:4,name:"Poach the King's Stag",energyCost:18,baseSuccess:75,stat:"speed",goldMin:30,goldMax:65,xp:12,emoji:"🦌",desc:"Illegal hunt"},
+            {id:5,name:"Raid a Smugglers' Camp",energyCost:30,baseSuccess:55,stat:"strength",goldMin:80,goldMax:160,xp:22,emoji:"🏕️",desc:"Take their goods by force"}
+        ];
+        
+        const shopItems = [
+            {id:1,name:"Iron Dagger",price:120,stat:"cunning",boost:3,emoji:"🗡️"},
+            {id:2,name:"Studded Leather Jerkin",price:180,stat:"defense",boost:4,emoji:"🛡️"},
+            {id:3,name:"Boots of Swiftness",price:150,stat:"speed",boost:3,emoji:"🥾"},
+            {id:4,name:"Battle Axe",price:220,stat:"strength",boost:5,emoji:"🪓"}
+        ];
+        
+        function performCrime(crime) {
+            if (player.energy < crime.energyCost) return alert("Not enough energy!");
+            player.energy -= crime.energyCost;
+            const successChance = Math.min(95, crime.baseSuccess + player.stats[crime.stat] * 2);
+            if (Math.random() * 100 < successChance) {
+                const gold = Math.floor(crime.goldMin + Math.random() * (crime.goldMax - crime.goldMin));
+                player.gold += gold;
+                gainXP(crime.xp);
+            } else {
+                player.hp = Math.max(0, player.hp - 12);
+            }
+            updatePlayer();
+            renderAll();
+        }
+        
+        function gainXP(amount) {
+            player.xp += amount;
+            while (player.xp >= player.xpToNext) {
+                player.level++;
+                player.xp -= player.xpToNext;
+                player.xpToNext = Math.floor(player.xpToNext * 1.4);
+                player.maxEnergy += 8;
+                player.maxHp += 15;
+                player.hp = player.maxHp;
+            }
+            updatePlayer();
+        }
+        
+        function buyItem(item) {
+            if (player.gold < item.price) return alert("Not enough gold!");
+            player.gold -= item.price;
+            player.stats[item.stat] += item.boost;
+            player.inventory.push(item);
+            updatePlayer();
+            renderAll();
+        }
+        
+        function renderAll() {
+            document.getElementById('player-name').textContent = player.name;
+            document.getElementById('kingdom-header').textContent = currentKingdom ? currentKingdom.name : 'No Kingdom';
+            document.getElementById('gold-display').textContent = player.gold;
+            renderEnergy();
+            renderHP();
+            renderCrimes();
+            renderShop();
+            renderKingdomPanel();
+        }
+        
+        function renderEnergy() {
+            const percent = Math.floor((player.energy / player.maxEnergy) * 100);
+            document.getElementById('energy-bar').style.width = percent + '%';
+            document.getElementById('energy-text').textContent = `\( {player.energy}/ \){player.maxEnergy}`;
+        }
+        
+        function renderHP() {
+            const percent = Math.floor((player.hp / player.maxHp) * 100);
+            document.getElementById('hp-bar').style.width = percent + '%';
+            document.getElementById('hp-text').textContent = `\( {player.hp}/ \){player.maxHp}`;
+        }
+        
+        function renderCrimes() {
+            const container = document.getElementById('crimes-list');
+            container.innerHTML = crimes.map(c => `
+                <button onclick='performCrime(${JSON.stringify(c)})' class="w-full flex gap-4 bg-[#3f2a1e] hover:bg-[#4a3629] p-4 rounded-2xl text-left ${player.energy < c.energyCost ? 'opacity-40 pointer-events-none' : ''}">
+                    <div class="text-4xl">${c.emoji}</div>
+                    <div class="flex-1">
+                        <div class="font-bold">${c.name}</div>
+                        <div class="text-xs text-amber-200/70">${c.desc}</div>
+                        <div class="flex justify-between mt-2 text-xs"><span class="text-emerald-400">⚡ \( {c.energyCost}</span><span>Success \~ \){Math.min(95, c.baseSuccess + player.stats[c.stat]*2)}%</span><span>💰 \( {c.goldMin}- \){c.goldMax}</span></div>
+                    </div>
+                </button>
+            `).join('');
+        }
+        
+        function renderShop() {
+            const container = document.getElementById('shop-list');
+            container.innerHTML = shopItems.map(item => `
+                <div onclick='buyItem(${JSON.stringify(item)})' class="bg-[#3f2a1e] rounded-2xl p-4 cursor-pointer hover:scale-105">
+                    <div class="text-5xl">${item.emoji}</div>
+                    <div class="font-bold mt-2">${item.name}</div>
+                    <div class="text-xs text-amber-200/70">+${item.boost} ${item.stat} — ${item.price} gold</div>
+                </div>
+            `).join('');
+        }
+        
+        function renderKingdomPanel() {
+            const container = document.getElementById('kingdom-panel-content');
+            if (!player.kingdom_id) {
+                container.innerHTML = `
+                    <button onclick="createKingdom()" class="w-full py-6 bg-[#d4a017] text-[#3f2a1e] font-bold text-xl rounded-3xl mb-4">🏰 FOUND A NEW KINGDOM (500 gold)</button>
+                    <button onclick="joinKingdom()" class="w-full py-6 border border-amber-300 text-amber-300 font-bold rounded-3xl">Join Existing Kingdom</button>
+                `;
+                return;
+            }
+            container.innerHTML = `
+                <div class="bg-[#3f2a1e] rounded-3xl p-6">
+                    <div class="font-bold text-2xl">${currentKingdom.name}</div>
+                    <button onclick="leaveKingdom()" class="mt-6 w-full py-3 text-red-400 border border-red-400/50 rounded-2xl">Leave Kingdom</button>
+                    <div class="mt-8">
+                        <input id="kingdom-chat-input" placeholder="Message your kingdom..." class="w-full bg-[#1a1208] rounded-2xl px-4 py-3 text-white">
+                        <button onclick="sendKingdomChat()" class="mt-2 w-full bg-[#d4a017] text-[#3f2a1e] py-3 rounded-2xl">Send</button>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function switchTab(n) {
+            document.querySelectorAll('#tab-content > div').forEach(d => d.classList.add('hidden'));
+            document.getElementById('panel-' + n).classList.remove('hidden');
+        }
+        
+        function editName() {
+            const newName = prompt("Your new name?", player.name);
+            if (newName && newName.trim()) {
+                player.name = newName.trim();
+                updatePlayer();
+                renderAll();
+            }
+        }
         
         window.onload = init;
     </script>
@@ -69,7 +245,7 @@
 </head>
 <body class="min-h-screen flex items-center justify-center p-4">
     <div class="game-container w-full rounded-3xl overflow-hidden shadow-2xl">
-        <!-- Full UI from previous versions -->
+        <!-- HEADER -->
         <div class="bg-[#3f2a1e] px-6 py-4 flex items-center justify-between border-b-4 border-[#d4a017]">
             <div>
                 <h1 class="medieval-title text-3xl text-[#d4a017]">BLACKTHORN</h1>
@@ -81,7 +257,32 @@
             </div>
             <div id="online-count" class="bg-emerald-600 text-white text-xs px-3 py-1 rounded-3xl flex items-center gap-1 font-bold">LIVE</div>
         </div>
-        <!-- Rest of the UI is the same as the previous full version -->
+        
+        <!-- STATS BAR -->
+        <div class="bg-[#2c1f14] px-6 py-3 flex justify-between text-sm border-b border-[#3f2a1e]">
+            <div class="flex items-center gap-2 flex-1"><span class="text-emerald-400">⚡</span><div class="flex-1"><div class="stat-bar"><div id="energy-bar" class="bar-fill bg-emerald-400" style="width:100%"></div></div></div><span id="energy-text" class="font-mono">100/100</span></div>
+            <div class="flex items-center gap-2 flex-1"><span class="text-red-400">❤️</span><div class="flex-1"><div class="stat-bar"><div id="hp-bar" class="bar-fill bg-red-400" style="width:100%"></div></div></div><span id="hp-text" class="font-mono">100/100</span></div>
+            <div class="flex items-center gap-1"><span class="text-2xl">💰</span><span id="gold-display" class="font-bold text-xl">250</span></div>
+        </div>
+        
+        <!-- TABS -->
+        <div class="flex border-b border-[#3f2a1e] bg-[#1a1208] text-xs overflow-x-auto">
+            <button onclick="switchTab(0)" id="tab-0" class="flex-1 py-4 font-bold border-b-4 border-[#d4a017] text-[#d4a017]">CRIMES</button>
+            <button onclick="switchTab(1)" id="tab-1" class="flex-1 py-4 font-bold">ARENA</button>
+            <button onclick="switchTab(2)" id="tab-2" class="flex-1 py-4 font-bold">TAVERN</button>
+            <button onclick="switchTab(3)" id="tab-3" class="flex-1 py-4 font-bold">MARKET</button>
+            <button onclick="switchTab(4)" id="tab-4" class="flex-1 py-4 font-bold">LEADERBOARD</button>
+            <button onclick="switchTab(5)" id="tab-5" class="flex-1 py-4 font-bold">KINGDOMS</button>
+        </div>
+        
+        <div id="tab-content" class="p-6 min-h-[420px]">
+            <div id="panel-0"><div id="crimes-list" class="space-y-3"></div></div>
+            <div id="panel-1" class="hidden">Arena (PvP coming soon)</div>
+            <div id="panel-2" class="hidden">Tavern — global realtime chat</div>
+            <div id="panel-3" class="hidden"><div id="shop-list" class="grid grid-cols-2 gap-4"></div></div>
+            <div id="panel-4" class="hidden">Hall of Legends</div>
+            <div id="panel-5" class="hidden"><div id="kingdom-panel-content"></div></div>
+        </div>
     </div>
 </body>
 </html>
