@@ -37,12 +37,10 @@
             if (p) {
                 player = p;
             } else {
-                // New player → show modal
                 showCreationModal();
                 return;
             }
             
-            // If they still have default name, force creation
             if (player.name === "Sir Elandor" && player.class === "Knight") {
                 showCreationModal();
                 return;
@@ -88,9 +86,7 @@
 
         function setupRealtime() {
             supabase.channel('players').on('postgres_changes', { 
-                event: '*', 
-                schema: 'public', 
-                table: 'players' 
+                event: '*', schema: 'public', table: 'players' 
             }, (payload) => {
                 if (payload.new.uid === uid) { 
                     player = payload.new; 
@@ -120,7 +116,6 @@
             renderAll();
         }
 
-        // ====================== ALL YOUR ORIGINAL GAME CODE ======================
         const crimes = [
             {id:1,name:"Cutpurse in the Market",energyCost:12,baseSuccess:82,stat:"cunning",goldMin:18,goldMax:42,xp:8,emoji:"💰",desc:"Snatch coins from merchants"},
             {id:2,name:"Highway Robbery",energyCost:22,baseSuccess:65,stat:"speed",goldMin:45,goldMax:95,xp:15,emoji:"🏇",desc:"Ambush a noble's carriage"},
@@ -174,12 +169,14 @@
         }
         
         function renderAll() {
+            // Header
             document.getElementById('player-name').innerHTML = `
                 <span class="text-4xl mr-2">${player.avatar}</span>
                 \( {player.name} <span class="text-xs text-amber-300">( \){player.class})</span>
             `;
             document.getElementById('kingdom-header').textContent = currentKingdom ? currentKingdom.name : 'No Kingdom';
             document.getElementById('gold-display').textContent = player.gold;
+            
             renderEnergy();
             renderHP();
             renderCrimes();
@@ -201,16 +198,23 @@
         
         function renderCrimes() {
             const container = document.getElementById('crimes-list');
-            container.innerHTML = crimes.map(c => `
-                <button onclick='performCrime(${JSON.stringify(c)})' class="w-full flex gap-4 bg-[#3f2a1e] hover:bg-[#4a3629] p-4 rounded-2xl text-left ${player.energy < c.energyCost ? 'opacity-40 pointer-events-none' : ''}">
-                    <div class="text-4xl">${c.emoji}</div>
-                    <div class="flex-1">
-                        <div class="font-bold">${c.name}</div>
-                        <div class="text-xs text-amber-200/70">${c.desc}</div>
-                        <div class="flex justify-between mt-2 text-xs"><span class="text-emerald-400">⚡ ${c.energyCost}</span><span>Success \~ ${Math.min(95, c.baseSuccess + player.stats[c.stat]*2)}%</span><span>💰 \( {c.goldMin}- \){c.goldMax}</span></div>
-                    </div>
-                </button>
-            `).join('');
+            container.innerHTML = crimes.map(c => {
+                const success = Math.min(95, c.baseSuccess + player.stats[c.stat] * 2);
+                return `
+                    <button onclick='performCrime(${JSON.stringify(c)})' class="w-full flex gap-4 bg-[#3f2a1e] hover:bg-[#4a3629] p-4 rounded-2xl text-left ${player.energy < c.energyCost ? 'opacity-40 pointer-events-none' : ''}">
+                        <div class="text-4xl">${c.emoji}</div>
+                        <div class="flex-1">
+                            <div class="font-bold">${c.name}</div>
+                            <div class="text-xs text-amber-200/70">${c.desc}</div>
+                            <div class="flex justify-between mt-2 text-xs">
+                                <span class="text-emerald-400">⚡ ${c.energyCost}</span>
+                                <span>Success \~ ${success}%</span>
+                                <span>💰 \( {c.goldMin}- \){c.goldMax}</span>
+                            </div>
+                        </div>
+                    </button>
+                `;
+            }).join('');
         }
         
         function renderShop() {
@@ -259,7 +263,6 @@
             }
         }
 
-        // Kingdom functions (unchanged)
         async function createKingdom() {
             if (player.gold < 500) return alert("500 gold required!");
             const name = prompt("Name your Kingdom:", "Kingdom of Ravens");
@@ -301,7 +304,7 @@
             input.value = '';
         }
 
-        // Make onclick functions available
+        // Make all functions available to onclick
         window.performCrime = performCrime;
         window.buyItem = buyItem;
         window.createKingdom = createKingdom;
