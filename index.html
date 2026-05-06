@@ -42,7 +42,71 @@
         function hideCreationModal() {
             document.getElementById('creation-modal').classList.add('hidden');
         }
+async function createCharacter() {
+    const nameInput = document.getElementById('char-name').value.trim();
+    const selectedClass = document.querySelector('input[name="class"]:checked').value;
+    const selectedAvatar = document.querySelector('input[name="avatar"]:checked').value;
 
+    if (!nameInput) return alert("Your legend needs a name, adventurer!");
+
+    player.name = nameInput;
+    player.class = selectedClass;
+    player.avatar = selectedAvatar;
+    if (selectedClass === "Knight") player.gold = 300;
+
+    // === FIXED SAVE ===
+    if (!uid) {
+        console.error("No uid found - auth failed");
+        return alert("Authentication error. Refresh and try again.");
+    }
+
+    console.log("🔄 Saving character for uid:", uid);
+    console.log("📦 Data being sent:", player);
+
+    try {
+        const { error } = await supabase.from('players').insert({
+            uid: uid,
+            name: player.name,
+            class: player.class,
+            avatar: player.avatar,
+            level: player.level || 1,
+            xp: player.xp || 0,
+            xpToNext: player.xpToNext || 100,
+            gold: player.gold,
+            energy: player.energy || 100,
+            maxEnergy: player.maxEnergy || 100,
+            hp: player.hp || 100,
+            maxHp: player.maxHp || 100,
+            stats: player.stats,           // Supabase will handle as jsonb
+            inventory: player.inventory,   // Supabase will handle as jsonb
+            kingdom_id: player.kingdom_id || null
+        });
+
+        if (error) throw error;
+
+        console.log("✅ Character saved successfully!");
+
+    } catch (err) {
+        console.error("❌ FULL Supabase error:", err);
+        alert("Error saving character: " + (err.message || JSON.stringify(err)));
+        
+        // TEMPORARY BYPASS (uncomment these 5 lines if you want to play right now)
+        // hideCreationModal();
+        // setupRealtime();
+        // loadKingdomData();
+        // renderAll();
+        // startEnergyTimer();
+        return;
+    }
+
+    hideCreationModal();
+    
+    // Now fully load the game
+    setupRealtime();
+    loadKingdomData();
+    renderAll();
+    startEnergyTimer();
+}
         async function createCharacter() {
             const nameInput = document.getElementById('char-name').value.trim();
             const selectedClass = document.querySelector('input[name="class"]:checked').value;
