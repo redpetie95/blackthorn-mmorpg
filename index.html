@@ -107,24 +107,7 @@ async function createCharacter() {
     renderAll();
     startEnergyTimer();
 }
-        async function createCharacter() {
-            const nameInput = document.getElementById('char-name').value.trim();
-            const selectedClass = document.querySelector('input[name="class"]:checked').value;
-            const selectedAvatar = document.querySelector('input[name="avatar"]:checked').value;
-
-            if (!nameInput) return alert("Your legend needs a name, adventurer!");
-
-            player.name = nameInput;
-            player.class = selectedClass;
-            player.avatar = selectedAvatar;
-            if (selectedClass === "Knight") player.gold = 300;
-
-            // Save to database
-            const { error } = await supabase.from('players').insert({ uid, ...player });
-            if (error) {
-                console.error(error);
-                return alert("Error saving character. Try again.");
-            }
+        
 
             hideCreationModal();
             
