@@ -21,20 +21,14 @@
             const { data: { user } } = await supabase.auth.signInAnonymously();
             uid = user.id;
             
-            let { data: p } = await supabase.from('players').select('*').eq('uid', uid).single();
+            const { data: p } = await supabase.from('players').select('*').eq('uid', uid).single();
             
-            if (p) {
-                player = p;
-            } else {
+            if (!p || (p.name === "Sir Elandor" && p.class === "Knight")) {
                 showCreationModal();
                 return;
             }
             
-            if (player.name === "Sir Elandor" && player.class === "Knight") {
-                showCreationModal();
-                return;
-            }
-            
+            player = p;
             setupRealtime();
             loadKingdomData();
             renderAll();
@@ -54,23 +48,35 @@
             const selectedClass = document.querySelector('input[name="class"]:checked').value;
             const selectedAvatar = document.querySelector('input[name="avatar"]:checked').value;
 
-            if (!nameInput) return alert("Your legend needs a name!");
+            if (!nameInput) return alert("Your legend needs a name, adventurer!");
 
             player.name = nameInput;
             player.class = selectedClass;
             player.avatar = selectedAvatar;
             if (selectedClass === "Knight") player.gold = 300;
 
-            await supabase.from('players').insert({ uid, ...player });
+            // Save to database
+            const { error } = await supabase.from('players').insert({ uid, ...player });
+            if (error) {
+                console.error(error);
+                return alert("Error saving character. Try again.");
+            }
 
             hideCreationModal();
-            // Force reload so everything renders cleanly
-            window.location.reload();
+            
+            // Now fully load the game
+            setupRealtime();
+            loadKingdomData();
+            renderAll();
+            startEnergyTimer();
         }
 
         function setupRealtime() {
             supabase.channel('players').on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, (payload) => {
-                if (payload.new.uid === uid) { player = payload.new; renderAll(); }
+                if (payload.new.uid === uid) {
+                    player = payload.new;
+                    renderAll();
+                }
             }).subscribe();
         }
 
@@ -95,7 +101,8 @@
             renderAll();
         }
 
-        const crimes = [
+        // ====================== GAME DATA & FUNCTIONS ======================
+        const crimes = [ /* your original crimes array */ 
             {id:1,name:"Cutpurse in the Market",energyCost:12,baseSuccess:82,stat:"cunning",goldMin:18,goldMax:42,xp:8,emoji:"💰",desc:"Snatch coins from merchants"},
             {id:2,name:"Highway Robbery",energyCost:22,baseSuccess:65,stat:"speed",goldMin:45,goldMax:95,xp:15,emoji:"🏇",desc:"Ambush a noble's carriage"},
             {id:3,name:"Burglarize the Lord's Manor",energyCost:35,baseSuccess:48,stat:"cunning",goldMin:110,goldMax:220,xp:28,emoji:"🏰",desc:"Sneak past guards"},
@@ -110,7 +117,7 @@
             {id:4,name:"Battle Axe",price:220,stat:"strength",boost:5,emoji:"🪓"}
         ];
 
-        function performCrime(crime) { /* same as before */ 
+        function performCrime(crime) { /* your original code */ 
             if (player.energy < crime.energyCost) return alert("Not enough energy!");
             player.energy -= crime.energyCost;
             const successChance = Math.min(95, crime.baseSuccess + player.stats[crime.stat] * 2);
@@ -125,7 +132,7 @@
             renderAll();
         }
         
-        function gainXP(amount) { /* same as before */ 
+        function gainXP(amount) { /* your original code */ 
             player.xp += amount;
             while (player.xp >= player.xpToNext) {
                 player.level++;
@@ -138,7 +145,7 @@
             updatePlayer();
         }
         
-        function buyItem(item) { /* same as before */ 
+        function buyItem(item) { /* your original code */ 
             if (player.gold < item.price) return alert("Not enough gold!");
             player.gold -= item.price;
             player.stats[item.stat] += item.boost;
@@ -158,19 +165,19 @@
             renderKingdomPanel();
         }
         
-        function renderEnergy() {
+        function renderEnergy() { /* original */ 
             const percent = Math.floor((player.energy / player.maxEnergy) * 100);
             document.getElementById('energy-bar').style.width = percent + '%';
             document.getElementById('energy-text').textContent = `\( {player.energy}/ \){player.maxEnergy}`;
         }
         
-        function renderHP() {
+        function renderHP() { /* original */ 
             const percent = Math.floor((player.hp / player.maxHp) * 100);
             document.getElementById('hp-bar').style.width = percent + '%';
             document.getElementById('hp-text').textContent = `\( {player.hp}/ \){player.maxHp}`;
         }
         
-        function renderCrimes() {
+        function renderCrimes() { /* original */ 
             const container = document.getElementById('crimes-list');
             container.innerHTML = crimes.map(c => {
                 const success = Math.min(95, c.baseSuccess + player.stats[c.stat] * 2);
@@ -185,7 +192,7 @@
             }).join('');
         }
         
-        function renderShop() {
+        function renderShop() { /* original */ 
             const container = document.getElementById('shop-list');
             container.innerHTML = shopItems.map(item => `
                 <div onclick='buyItem(${JSON.stringify(item)})' class="bg-[#3f2a1e] rounded-2xl p-4 cursor-pointer hover:scale-105">
@@ -196,7 +203,7 @@
             `).join('');
         }
         
-        function renderKingdomPanel() { /* same as before */ 
+        function renderKingdomPanel() { /* original */ 
             const container = document.getElementById('kingdom-panel-content');
             if (!player.kingdom_id) {
                 container.innerHTML = `<button onclick="createKingdom()" class="w-full py-6 bg-[#d4a017] text-[#3f2a1e] font-bold text-xl rounded-3xl mb-4">🏰 FOUND A NEW KINGDOM (500 gold)</button><button onclick="joinKingdom()" class="w-full py-6 border border-amber-300 text-amber-300 font-bold rounded-3xl">Join Existing Kingdom</button>`;
@@ -205,12 +212,12 @@
             container.innerHTML = `<div class="bg-[#3f2a1e] rounded-3xl p-6"><div class="font-bold text-2xl">${currentKingdom.name}</div><button onclick="leaveKingdom()" class="mt-6 w-full py-3 text-red-400 border border-red-400/50 rounded-2xl">Leave Kingdom</button><div class="mt-8"><input id="kingdom-chat-input" placeholder="Message your kingdom..." class="w-full bg-[#1a1208] rounded-2xl px-4 py-3 text-white"><button onclick="sendKingdomChat()" class="mt-2 w-full bg-[#d4a017] text-[#3f2a1e] py-3 rounded-2xl">Send</button></div></div>`;
         }
         
-        function switchTab(n) {
+        function switchTab(n) { /* original */ 
             document.querySelectorAll('#tab-content > div').forEach(d => d.classList.add('hidden'));
             document.getElementById('panel-' + n).classList.remove('hidden');
         }
         
-        function editName() {
+        function editName() { /* original */ 
             const newName = prompt("Your new name?", player.name);
             if (newName && newName.trim()) {
                 player.name = newName.trim();
@@ -219,8 +226,8 @@
             }
         }
 
-        // Kingdom functions (unchanged)
-        async function createKingdom() { /* same as before */ 
+        // Kingdom functions (your original ones)
+        async function createKingdom() { /* original */ 
             if (player.gold < 500) return alert("500 gold required!");
             const name = prompt("Name your Kingdom:", "Kingdom of Ravens");
             if (!name) return;
@@ -233,7 +240,7 @@
             renderAll();
         }
         
-        async function joinKingdom() { /* same */ 
+        async function joinKingdom() { /* original */ 
             const name = prompt("Enter kingdom name to join:");
             if (!name) return;
             const { data: k } = await supabase.from('kingdoms').select('id').eq('name', name).single();
@@ -244,7 +251,7 @@
             loadKingdomData();
         }
         
-        async function leaveKingdom() { /* same */ 
+        async function leaveKingdom() { /* original */ 
             if (!confirm("Leave your kingdom?")) return;
             await supabase.from('kingdom_members').delete().eq('player_uid', uid);
             player.kingdom_id = null;
@@ -253,7 +260,7 @@
             renderAll();
         }
         
-        async function sendKingdomChat() { /* same */ 
+        async function sendKingdomChat() { /* original */ 
             const input = document.getElementById('kingdom-chat-input');
             const text = input.value.trim();
             if (!text || !player.kingdom_id) return;
@@ -261,6 +268,7 @@
             input.value = '';
         }
 
+        // Make onclicks work
         window.performCrime = performCrime;
         window.buyItem = buyItem;
         window.createKingdom = createKingdom;
@@ -285,6 +293,7 @@
     </style>
 </head>
 <body class="min-h-screen flex items-center justify-center p-4">
+    <!-- Your full game UI (header, stats, tabs, panels) is exactly as before -->
     <div class="game-container w-full rounded-3xl overflow-hidden shadow-2xl">
         <div class="bg-[#3f2a1e] px-6 py-4 flex items-center justify-between border-b-4 border-[#d4a017]">
             <div>
@@ -323,7 +332,7 @@
         </div>
     </div>
 
-    <!-- MODAL -->
+    <!-- CHARACTER CREATION MODAL -->
     <div id="creation-modal" class="hidden fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
         <div class="modal bg-[#2a1f14] border-4 border-[#d4af77] rounded-3xl max-w-md w-full p-8 shadow-2xl">
             <h1 class="medieval-title text-4xl text-center text-[#f5e8c7] mb-2">FORGE YOUR LEGEND</h1>
@@ -331,6 +340,7 @@
             
             <input id="char-name" type="text" maxlength="20" placeholder="Sir Elandor" class="w-full bg-[#1f160f] border-2 border-[#d4af77] text-[#f5e8c7] text-2xl px-6 py-5 rounded-2xl mb-8 focus:outline-none focus:border-[#f5e8c7]">
             
+            <!-- Class and Avatar selection (same as before) -->
             <div class="mb-8">
                 <label class="block text-[#d4af77] text-sm mb-3 font-medium">CHOOSE YOUR CLASS</label>
                 <div class="grid grid-cols-4 gap-3">
