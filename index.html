@@ -18,21 +18,32 @@
         let currentKingdom = null;
 
         async function init() {
-            const { data: { user } } = await supabase.auth.signInAnonymously();
-            uid = user.id;
-            
-            const { data: p } = await supabase.from('players').select('*').eq('uid', uid).single();
-            
-            if (!p || (p.name === "Sir Elandor" && p.class === "Knight")) {
-                showCreationModal();
-                return;
+            try {
+                console.log("🚀 Starting init...");
+                const { data: { user } } = await supabase.auth.signInAnonymously();
+                uid = user.id;
+                console.log("✅ Got UID:", uid);
+
+                const { data: p } = await supabase.from('players').select('*').eq('uid', uid).single();
+
+                // TEMPORARY FORCE MODAL so you can test character creation
+                // (remove "true ||" later once save works)
+                if (true || !p || (p.name === "Sir Elandor" && p.class === "Knight")) {
+                    console.log("Showing character creation modal");
+                    showCreationModal();
+                    return;
+                }
+
+                // Existing character found
+                player = p;
+                setupRealtime();
+                loadKingdomData();
+                renderAll();
+                startEnergyTimer();
+            } catch (err) {
+                console.error("❌ Init failed:", err);
+                alert("Init error - check console");
             }
-            
-            player = p;
-            setupRealtime();
-            loadKingdomData();
-            renderAll();
-            startEnergyTimer();
         }
 
         function showCreationModal() {
@@ -42,79 +53,64 @@
         function hideCreationModal() {
             document.getElementById('creation-modal').classList.add('hidden');
         }
-async function createCharacter() {
-    const nameInput = document.getElementById('char-name').value.trim();
-    const selectedClass = document.querySelector('input[name="class"]:checked').value;
-    const selectedAvatar = document.querySelector('input[name="avatar"]:checked').value;
 
-    if (!nameInput) return alert("Your legend needs a name, adventurer!");
+        async function createCharacter() {
+            const nameInput = document.getElementById('char-name').value.trim();
+            const selectedClass = document.querySelector('input[name="class"]:checked').value;
+            const selectedAvatar = document.querySelector('input[name="avatar"]:checked').value;
 
-    player.name = nameInput;
-    player.class = selectedClass;
-    player.avatar = selectedAvatar;
-    if (selectedClass === "Knight") player.gold = 300;
+            if (!nameInput) return alert("Your legend needs a name, adventurer!");
 
-    // === FIXED SAVE ===
-    if (!uid) {
-        console.error("No uid found - auth failed");
-        return alert("Authentication error. Refresh and try again.");
-    }
+            player.name = nameInput;
+            player.class = selectedClass;
+            player.avatar = selectedAvatar;
+            if (selectedClass === "Knight") player.gold = 300;
 
-    console.log("🔄 Saving character for uid:", uid);
-    console.log("📦 Data being sent:", player);
+            // === FIXED SAVE TO SUPABASE ===
+            if (!uid) {
+                console.error("No uid found - auth failed");
+                return alert("Authentication error. Refresh and try again.");
+            }
 
-    try {
-        const { error } = await supabase.from('players').insert({
-            uid: uid,
-            name: player.name,
-            class: player.class,
-            avatar: player.avatar,
-            level: player.level || 1,
-            xp: player.xp || 0,
-            xpToNext: player.xpToNext || 100,
-            gold: player.gold,
-            energy: player.energy || 100,
-            maxEnergy: player.maxEnergy || 100,
-            hp: player.hp || 100,
-            maxHp: player.maxHp || 100,
-            stats: player.stats,           // Supabase will handle as jsonb
-            inventory: player.inventory,   // Supabase will handle as jsonb
-            kingdom_id: player.kingdom_id || null
-        });
+            console.log("🔄 Saving character for uid:", uid);
+            console.log("📦 Data being sent:", player);
 
-        if (error) throw error;
+            try {
+                const { error } = await supabase.from('players').insert({
+                    uid: uid,
+                    name: player.name,
+                    class: player.class,
+                    avatar: player.avatar,
+                    level: player.level || 1,
+                    xp: player.xp || 0,
+                    xpToNext: player.xpToNext || 100,
+                    gold: player.gold,
+                    energy: player.energy || 100,
+                    maxEnergy: player.maxEnergy || 100,
+                    hp: player.hp || 100,
+                    maxHp: player.maxHp || 100,
+                    stats: player.stats,
+                    inventory: player.inventory,
+                    kingdom_id: player.kingdom_id || null
+                });
 
-        console.log("✅ Character saved successfully!");
+                if (error) throw error;
 
-    } catch (err) {
-        console.error("❌ FULL Supabase error:", err);
-        alert("Error saving character: " + (err.message || JSON.stringify(err)));
-        
-        // TEMPORARY BYPASS (uncomment these 5 lines if you want to play right now)
-        // hideCreationModal();
-        // setupRealtime();
-        // loadKingdomData();
-        // renderAll();
-        // startEnergyTimer();
-        return;
-    }
+                console.log("✅ Character saved successfully!");
 
-    
-    // Now fully load the game
-    setupRealtime();
-    loadKingdomData();
-    renderAll();
-    startEnergyTimer();
-}
-        
+                hideCreationModal();
+                
+                // Now fully load the game
+                setupRealtime();
+                loadKingdomData();
+                renderAll();
+                startEnergyTimer();
 
-            hideCreationModal();
-            
-            // Now fully load the game
-            setupRealtime();
-            loadKingdomData();
-            renderAll();
-            startEnergyTimer();
+            } catch (err) {
+                console.error("❌ FULL Supabase error:", err);
+                alert("Error saving character: " + (err.message || JSON.stringify(err)));
+                return;
+            }
         }
 
         function setupRealtime() {
@@ -148,7 +144,7 @@ async function createCharacter() {
         }
 
         // ====================== GAME DATA & FUNCTIONS ======================
-        const crimes = [ /* your original crimes array */ 
+        const crimes = [
             {id:1,name:"Cutpurse in the Market",energyCost:12,baseSuccess:82,stat:"cunning",goldMin:18,goldMax:42,xp:8,emoji:"💰",desc:"Snatch coins from merchants"},
             {id:2,name:"Highway Robbery",energyCost:22,baseSuccess:65,stat:"speed",goldMin:45,goldMax:95,xp:15,emoji:"🏇",desc:"Ambush a noble's carriage"},
             {id:3,name:"Burglarize the Lord's Manor",energyCost:35,baseSuccess:48,stat:"cunning",goldMin:110,goldMax:220,xp:28,emoji:"🏰",desc:"Sneak past guards"},
@@ -163,7 +159,7 @@ async function createCharacter() {
             {id:4,name:"Battle Axe",price:220,stat:"strength",boost:5,emoji:"🪓"}
         ];
 
-        function performCrime(crime) { /* your original code */ 
+        function performCrime(crime) {
             if (player.energy < crime.energyCost) return alert("Not enough energy!");
             player.energy -= crime.energyCost;
             const successChance = Math.min(95, crime.baseSuccess + player.stats[crime.stat] * 2);
@@ -178,7 +174,7 @@ async function createCharacter() {
             renderAll();
         }
         
-        function gainXP(amount) { /* your original code */ 
+        function gainXP(amount) {
             player.xp += amount;
             while (player.xp >= player.xpToNext) {
                 player.level++;
@@ -191,7 +187,7 @@ async function createCharacter() {
             updatePlayer();
         }
         
-        function buyItem(item) { /* your original code */ 
+        function buyItem(item) {
             if (player.gold < item.price) return alert("Not enough gold!");
             player.gold -= item.price;
             player.stats[item.stat] += item.boost;
@@ -201,7 +197,7 @@ async function createCharacter() {
         }
         
         function renderAll() {
-            document.getElementById('player-name').innerHTML = `<span class="text-4xl mr-2">\( {player.avatar}</span> \){player.name} <span class="text-xs text-amber-300">(${player.class})</span>`;
+            document.getElementById('player-name').innerHTML = `<span class="text-4xl mr-2">${player.avatar}</span> \( {player.name} <span class="text-xs text-amber-300">( \){player.class})</span>`;
             document.getElementById('kingdom-header').textContent = currentKingdom ? currentKingdom.name : 'No Kingdom';
             document.getElementById('gold-display').textContent = player.gold;
             renderEnergy();
@@ -211,19 +207,19 @@ async function createCharacter() {
             renderKingdomPanel();
         }
         
-        function renderEnergy() { /* original */ 
+        function renderEnergy() {
             const percent = Math.floor((player.energy / player.maxEnergy) * 100);
             document.getElementById('energy-bar').style.width = percent + '%';
             document.getElementById('energy-text').textContent = `\( {player.energy}/ \){player.maxEnergy}`;
         }
         
-        function renderHP() { /* original */ 
+        function renderHP() {
             const percent = Math.floor((player.hp / player.maxHp) * 100);
             document.getElementById('hp-bar').style.width = percent + '%';
             document.getElementById('hp-text').textContent = `\( {player.hp}/ \){player.maxHp}`;
         }
         
-        function renderCrimes() { /* original */ 
+        function renderCrimes() {
             const container = document.getElementById('crimes-list');
             container.innerHTML = crimes.map(c => {
                 const success = Math.min(95, c.baseSuccess + player.stats[c.stat] * 2);
@@ -238,7 +234,7 @@ async function createCharacter() {
             }).join('');
         }
         
-        function renderShop() { /* original */ 
+        function renderShop() {
             const container = document.getElementById('shop-list');
             container.innerHTML = shopItems.map(item => `
                 <div onclick='buyItem(${JSON.stringify(item)})' class="bg-[#3f2a1e] rounded-2xl p-4 cursor-pointer hover:scale-105">
@@ -249,7 +245,7 @@ async function createCharacter() {
             `).join('');
         }
         
-        function renderKingdomPanel() { /* original */ 
+        function renderKingdomPanel() {
             const container = document.getElementById('kingdom-panel-content');
             if (!player.kingdom_id) {
                 container.innerHTML = `<button onclick="createKingdom()" class="w-full py-6 bg-[#d4a017] text-[#3f2a1e] font-bold text-xl rounded-3xl mb-4">🏰 FOUND A NEW KINGDOM (500 gold)</button><button onclick="joinKingdom()" class="w-full py-6 border border-amber-300 text-amber-300 font-bold rounded-3xl">Join Existing Kingdom</button>`;
@@ -258,12 +254,12 @@ async function createCharacter() {
             container.innerHTML = `<div class="bg-[#3f2a1e] rounded-3xl p-6"><div class="font-bold text-2xl">${currentKingdom.name}</div><button onclick="leaveKingdom()" class="mt-6 w-full py-3 text-red-400 border border-red-400/50 rounded-2xl">Leave Kingdom</button><div class="mt-8"><input id="kingdom-chat-input" placeholder="Message your kingdom..." class="w-full bg-[#1a1208] rounded-2xl px-4 py-3 text-white"><button onclick="sendKingdomChat()" class="mt-2 w-full bg-[#d4a017] text-[#3f2a1e] py-3 rounded-2xl">Send</button></div></div>`;
         }
         
-        function switchTab(n) { /* original */ 
+        function switchTab(n) {
             document.querySelectorAll('#tab-content > div').forEach(d => d.classList.add('hidden'));
             document.getElementById('panel-' + n).classList.remove('hidden');
         }
         
-        function editName() { /* original */ 
+        function editName() {
             const newName = prompt("Your new name?", player.name);
             if (newName && newName.trim()) {
                 player.name = newName.trim();
@@ -272,8 +268,7 @@ async function createCharacter() {
             }
         }
 
-        // Kingdom functions (your original ones)
-        async function createKingdom() { /* original */ 
+        async function createKingdom() {
             if (player.gold < 500) return alert("500 gold required!");
             const name = prompt("Name your Kingdom:", "Kingdom of Ravens");
             if (!name) return;
@@ -286,7 +281,7 @@ async function createCharacter() {
             renderAll();
         }
         
-        async function joinKingdom() { /* original */ 
+        async function joinKingdom() {
             const name = prompt("Enter kingdom name to join:");
             if (!name) return;
             const { data: k } = await supabase.from('kingdoms').select('id').eq('name', name).single();
@@ -297,7 +292,7 @@ async function createCharacter() {
             loadKingdomData();
         }
         
-        async function leaveKingdom() { /* original */ 
+        async function leaveKingdom() {
             if (!confirm("Leave your kingdom?")) return;
             await supabase.from('kingdom_members').delete().eq('player_uid', uid);
             player.kingdom_id = null;
@@ -306,7 +301,7 @@ async function createCharacter() {
             renderAll();
         }
         
-        async function sendKingdomChat() { /* original */ 
+        async function sendKingdomChat() {
             const input = document.getElementById('kingdom-chat-input');
             const text = input.value.trim();
             if (!text || !player.kingdom_id) return;
@@ -314,7 +309,7 @@ async function createCharacter() {
             input.value = '';
         }
 
-        // Make onclicks work
+        // Make functions globally available for onclick handlers
         window.performCrime = performCrime;
         window.buyItem = buyItem;
         window.createKingdom = createKingdom;
@@ -339,7 +334,6 @@ async function createCharacter() {
     </style>
 </head>
 <body class="min-h-screen flex items-center justify-center p-4">
-    <!-- Your full game UI (header, stats, tabs, panels) is exactly as before -->
     <div class="game-container w-full rounded-3xl overflow-hidden shadow-2xl">
         <div class="bg-[#3f2a1e] px-6 py-4 flex items-center justify-between border-b-4 border-[#d4a017]">
             <div>
@@ -386,7 +380,6 @@ async function createCharacter() {
             
             <input id="char-name" type="text" maxlength="20" placeholder="Sir Elandor" class="w-full bg-[#1f160f] border-2 border-[#d4af77] text-[#f5e8c7] text-2xl px-6 py-5 rounded-2xl mb-8 focus:outline-none focus:border-[#f5e8c7]">
             
-            <!-- Class and Avatar selection (same as before) -->
             <div class="mb-8">
                 <label class="block text-[#d4af77] text-sm mb-3 font-medium">CHOOSE YOUR CLASS</label>
                 <div class="grid grid-cols-4 gap-3">
